@@ -1,55 +1,53 @@
+// server/middleware/authMiddleware.js
 const jwt = require("jsonwebtoken");
-const User = require("../models/User");
-const Driver = require("../models/Driver");
+const asyncHandler = require("express-async-handler");
+const User = require("../models/userModel");
 
-// Middleware to authenticate and authorize users
-const isUser = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization.split(" ")[1]; // Bearer token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+const { verifyToken } = require("../utils/jwtUtils");
 
-    const user = await User.findById(decoded.id);
-    if (!user) return res.status(401).json({ message: "Unauthorized" });
+const protect = (req, res, next) => {
+  let token;
 
-    req.user = user;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: "Not authorized, token failed" });
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer")
+  ) {
+    try {
+      // Get token from header
+      token = req.headers.authorization.split(" ")[1];
+
+      // Verify token
+      const decoded = verifyToken(token);
+
+      if (!decoded) {
+        res.status(401);
+        throw new Error("Not authorized, token failed");
+      }
+
+      // Get user from the token
+      req.user = { id: decoded.id };
+
+      next();
+    } catch (error) {
+      console.error(error);
+      res.status(401);
+      throw new Error("Not authorized, token failed");
+    }
+  }
+
+  if (!token) {
+    res.status(401);
+    throw new Error("Not authorized, no token");
   }
 };
 
-// Middleware to authenticate and authorize drivers
-const isDriver = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization.split(" ")[1]; // Bearer token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const driver = await Driver.findById(decoded.id);
-    if (!driver) return res.status(401).json({ message: "Unauthorized" });
-
-    req.driver = driver;
+const admin = (req, res, next) => {
+  if (req.user && req.user.isAdmin) {
     next();
-  } catch (error) {
-    res.status(401).json({ message: "Not authorized, token failed" });
+  } else {
+    res.status(401);
+    throw new Error("Not authorized as an admin");
   }
 };
 
-// Middleware to authenticate and authorize admins
-const isAdmin = async (req, res, next) => {
-  try {
-    const token = req.headers.authorization.split(" ")[1]; // Bearer token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Assuming the admin role can be checked via the user document
-    const user = await User.findById(decoded.id);
-    if (!user || user.role !== "admin")
-      return res.status(401).json({ message: "Unauthorized" });
-
-    req.user = user;
-    next();
-  } catch (error) {
-    res.status(401).json({ message: "Not authorized, token failed" });
-  }
-};
-
-module.exports = { isUser, isDriver, isAdmin };
+module.exports = { protect, admin };

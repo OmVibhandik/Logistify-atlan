@@ -1,24 +1,68 @@
-require("dotenv").config();
+// server/server.js
 const express = require("express");
-const connectDB = require("./config/db.js");
-const userRoutes = require("./routers/userRoutes.js");
-const driverRoutes = require("./routers/driverRoutes.js");
-const adminRoutes = require("./routers/adminRouters.js");
-const setupWebSocket = require("../real-time/socketServer.js");
+const dotenv = require("dotenv");
 const cors = require("cors");
-const http = require("http");
+const socketIo = require("socket.io");
+const connectDB = require("./config/db");
+const { notFound, errorHandler } = require("./middleware/errorMiddleware");
+const userRoutes = require("./routes/userRoutes");
+const driverRoutes = require("./routes/driverRoutes");
+const bookingRoutes = require("./routes/bookingRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+
+dotenv.config();
 
 const app = express();
-const server = http.createServer(app);
-const io = setupWebSocket(server);
-app.use(cors()); 
-app.use(express.json());
 
+// Connect to MongoDB
 connectDB();
 
+// Middleware
+app.use(
+  cors({
+    origin: "http://localhost:3000", // Your frontend URL
+    credentials: true,
+  })
+);
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// Routes
 app.use("/api/users", userRoutes);
 app.use("/api/drivers", driverRoutes);
-app.use("/api/admins", adminRoutes);
+app.use("/api/bookings", bookingRoutes);
+app.use("/api/admin", adminRoutes);
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+app.use(notFound);
+app.use(errorHandler);
+
+const PORT = process.env.PORT || 5000;
+
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+// Socket.io setup for real-time tracking
+const io = socketIo(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+});
+
+io.on("connection", (socket) => {
+  console.log("A user connected");
+
+  socket.on("joinBooking", (bookingId) => {
+    socket.join(bookingId);
+  });
+
+  socket.on("updateDriverLocation", ({ bookingId, location }) => {
+    io.to(bookingId).emit("driverLocationUpdate", location);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected");
+  });
+});
